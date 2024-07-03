@@ -1,0 +1,54 @@
+image: docker:stable
+
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  REGISTRY: wstabac
+  REPO: gitlabdemo
+
+
+services:
+- docker:dind
+
+stages:
+  - build
+  - scan
+
+before_script:
+- docker info
+
+build:
+  stage: build
+  script:
+  - docker build -t $REGISTRY/$REPO:$CI_COMMIT_REF_NAME .
+  - docker images
+  - mkdir image
+  - docker save $REGISTRY/$REPO:$CI_COMMIT_REF_NAME > image/app.tar
+  artifacts:
+    paths:
+      - image
+  tags:
+    - dind
+
+mend-image-scan:
+  stage: scan
+  variables:
+    MEND_EMAIL: $MEND_EMAIL
+    MEND_USER_KEY: $MEND_USER_KEY
+    # MEND_URL: "https://saas.mend.io"
+    MEND_URL: "https://saas-eu.mend.io"
+
+  script: |
+    docker load -i image/app.tar
+    docker images
+    apk add --no-cache curl
+    echo Downloading Mend CLI
+    curl https://downloads.mend.io/cli/linux_amd64/mend -o ./mend && chmod +x ./mend
+    echo Run Mend Image scan
+    ./mend image $REGISTRY/$REPO:$CI_COMMIT_REF_NAME  --local-pull
+    cp -r ~/.mend/logs $CI_PROJECT_DIR/mend-logs
+  artifacts:
+    paths:
+      - mend-logs/
+    when: always
